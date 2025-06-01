@@ -70,6 +70,8 @@ uint8_t signindex=0;
 uint8_t caculatestate=0;
 uint8_t warning_message[8]={0};
 uint8_t warnsign=0;
+
+uint8_t rx2flag_map[0x1D] = {0};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -87,12 +89,13 @@ uint8_t memlen32(uint32_t *);
 void caculate();
 void numdisplay(uint32_t result);
 void storenumandsign();
-void emptysign(uint8_t *);
-void emptynum(uint32_t *);
-void emptyall();
+void clearsign(uint8_t *);
+void clearnum(uint32_t *);
+void clearall();
 void continuecaculate();
 void warning();
-void check_sign();
+void init_map();
+int is_legal_input();
 /* USER CODE END 0 */
 
 int main(void) {
@@ -122,6 +125,8 @@ int main(void) {
   printf("\n\r FS-STM32\r\n");
   /* USER CODE END 2 */
 
+  init_map();
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
@@ -131,7 +136,7 @@ int main(void) {
     if (flag1 == 1) {
       flag1 = 0;
       I2C_ZLG7290_Read(&hi2c1, 0x71, 0x01, Rx1_Buffer, 1);
-      swtich_key();
+      flag = rx2flag_map[Rx1_Buffer[0]];
       if(warnsign==1)
       {
         warnsign=0;
@@ -139,11 +144,12 @@ int main(void) {
         I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8);
       }
       I2C_ZLG7290_Read(&hi2c1, 0x71, 0x10, Rx2_Buffer, 8);
-      check_sign();
-      if(warnsign==1)
-      {
+      if (!is_legal_input()) {
+        warning();
         continue;
       }
+
+      // 上一轮我们输入了符号， 这一轮读取输入之后要先清空数码管
       if(state==1)
       {
         for(int i=0;i<8;i++)
@@ -153,9 +159,12 @@ int main(void) {
         I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Rx2_Buffer, 8);
         state=0;
       }
+
+      // 上一轮我们输入了=号
       if(caculatestate==1)
       {
-        continuecaculate();state=0;
+        continuecaculate();
+        state=0;
       }
       storenumandsign();
       switch_flag();
@@ -201,138 +210,56 @@ void SystemClock_Config(void) {
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
 
-/* USER CODE BEGIN 4 */
-void swtich_key(void) {
-  switch (Rx1_Buffer[0]) {
-  case 0x1C:
-    flag = 1;
-    break;
-  case 0x1B:
-    flag = 2;
-    break;
-  case 0x1A:
-    flag = 3;
-    break;
-  case 0x14:
-    flag = 4;
-    break;
-  case 0x13:
-    flag = 5;
-    break;
-  case 0x12:
-    flag = 6;
-    break;
-  case 0x0C:
-    flag = 7;
-    break;
-  case 0x0B:
-    flag = 8;
-    break;
-  case 0x0A:
-    flag = 9;
-    break;
-  case 0x03:
-    flag = 15;
-    break;
-  case 0x19:
-    flag = 10;
-    break;
-  case 0x11:
-    flag = 11;
-    break;
-  case 0x09:
-    flag = 12;
-    break;
-  case 0x01:
-    flag = 13;
-    break;
-  case 0x02:
-    flag = 14;
-    break;
-  case 0x04:
-    flag=16;
-    break;
-  default:
-    break;
-  }
-}
+
+uint8_t flag2tx1_map[16] = {0/* not used*/,
+  0x0c, // index -> 1
+  0xDA, // index -> 2
+  0xF2, // index -> 3
+  0x66, // index -> 4
+  0xB6, // index -> 5
+  0xBE, // index -> 6
+  0xE0, // index -> 7
+  0xFE, // index -> 8
+  0xE6, // index -> 9
+  0xEE, // index -> 10
+  0x3E, // index -> 11
+  0x9C, // index -> 12
+  0x7A, // index -> 13
+  0x00, // index -> 14
+  0xFC, // index -> 15
+};
 
 void switch_flag(void) {
   switch (flag) {
-  case 1:
-    Tx1_Buffer[0] = 0x0c;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);
-    break;
-  case 2:
-    Tx1_Buffer[0] = 0xDA;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);
-    break;
-  case 3:
-    Tx1_Buffer[0] = 0xF2;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);
-    break;
-  case 4:
-    Tx1_Buffer[0] = 0x66;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);
-    break;
-  case 5:
-    Tx1_Buffer[0] = 0xB6;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);
-    break;
-  case 6:
-    Tx1_Buffer[0] = 0xBE;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);
-    break;
-  case 7:
-    Tx1_Buffer[0] = 0xE0;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);
-    break;
-  case 8:
-    Tx1_Buffer[0] = 0xFE;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);
-    break;
-  case 9:
-    Tx1_Buffer[0] = 0xE6;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);
-    break;
-  case 10:
+  // 处理输入数字1-9的情况
+  #define XX(A) case A: \
+                  Tx1_Buffer[0] = flag2tx1_map[A]; \
+                  I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);\
+                  break \
+  // 这一行不要删除
+  XX(1);XX(2);XX(3);XX(4);XX(5);XX(6);XX(7);XX(8);XX(9);
+
+  // 处理运算符号的情况（不包括等号和清零符号）
+  #define YY(A) case A: \
+                  Tx1_Buffer[0] = 0x00; \
+                  I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8); \
+                  Tx1_Buffer[0] = flag2tx1_map[A]; \
+                  I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 1); \
+                  state = 1; \
+                  break \
+  // 这一行不要删除
+  YY(10);YY(11);YY(12);YY(13);
+
+  case 14: //清零符号
     Tx1_Buffer[0] = 0x00;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8);
-    Tx1_Buffer[0] = 0xEE;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 1);
-    state=1;
-    break;
-  case 11:
-    Tx1_Buffer[0] = 0x00;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8);
-    Tx1_Buffer[0] = 0x3E;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 1);
-    state=1;
-    break;
-  case 12:
-    Tx1_Buffer[0] = 0x00;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8);
-    Tx1_Buffer[0] = 0x9C;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 1);
-    state=1;
-    break;
-  case 13:
-    Tx1_Buffer[0] = 0x00;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8);
-    Tx1_Buffer[0] = 0x7A;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 1);
-    state=1;
-    break;
-  case 14:
-    Tx1_Buffer[0] = 0x00;
-    emptyall();
+    clearall();
     I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8);
     break;
-  case 15:
-    Tx1_Buffer[0] = 0xFC;
-    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);
-    break;
-  case 16:
+
+  // 处理数字0
+  XX(15);
+
+  case 16: // 等于号
     caculate();
     numdisplay(result);
     if(warnsign==1)
@@ -355,36 +282,6 @@ int fputc(int ch, FILE *f) {
   HAL_UART_Transmit(&huart1, tmp, 1, 10);
   return ch;
 }
-/* USER CODE END 4 */
-
-#ifdef USE_FULL_ASSERT
-
-/**
- * @brief Reports the name of the source file and the source line number
- * where the assert_param error has occurred.
- * @param file: pointer to the source file name
- * @param line: assert_param error line source number
- * @retval None
- */
-void assert_failed(uint8_t *file, uint32_t line) {
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line
-    number, ex: printf("Wrong parameters value: file %s on line %d\r\n", file,
-    line) */
-  /* USER CODE END 6 */
-}
-
-#endif
-
-/**
- * @}
- */
-
-/**
- * @}
- */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
 
 uint8_t memlen(uint8_t *str) {
   int count = 0;
@@ -392,12 +289,14 @@ uint8_t memlen(uint8_t *str) {
     count++;
   return count;
 }
+
 uint8_t memlen32(uint32_t *str) {
   int count = 0;
   while (*str++)
     count++;
   return count;
 }
+
 void caculate()
 {
   uint8_t i = 0;uint8_t numcount = memlen32(num);uint8_t signcount = memlen(sign);
@@ -409,7 +308,7 @@ void caculate()
           {
             if(num[i+1]==0)
             {
-              emptyall();
+              clearall();
               warning();
               warnsign=1;
               return;
@@ -461,7 +360,7 @@ void numdisplay(uint32_t result)
   if (result < 0 || result > 99999999) {
       // 超出范围时设为全 9
       warning();
-      emptyall();
+      clearall();
       warnsign=1;
       return;
   }
@@ -481,6 +380,7 @@ void numdisplay(uint32_t result)
     resultdisplay[i]=temp[index--];
   }
 }
+
 void storenumandsign()
 {
   if((flag >= 1 && flag <= 9) || flag==15)
@@ -523,7 +423,8 @@ void storenumandsign()
       }
   
 }
-void emptysign(uint8_t *str)
+
+void clearsign(uint8_t *str)
 {
   while(*str)
   {
@@ -531,7 +432,8 @@ void emptysign(uint8_t *str)
     str++;
   }
 }
-void emptynum(uint32_t *str)
+
+void clearnum(uint32_t *str)
 {
   while(*str)
   {
@@ -539,25 +441,27 @@ void emptynum(uint32_t *str)
     str++;
   }
 }
-void emptyall()
+
+void clearall()
 {
-  numindex=0;signindex=0;
-  emptysign(sign);
-  emptynum(num);
-  emptysign(resultdisplay);
+  numindex=0;
+  signindex=0;
+  clearsign(sign);
+  clearnum(num);
+  clearsign(resultdisplay);
 }
+
 void continuecaculate()
 {
-  if((flag >= 1 && flag<=9 )|| flag ==15 )
-  {
-    emptyall();caculatestate=0;
-  }
-  else if( flag >= 10 && flag <= 13 )
-  {
-    emptyall();
-    sum=result;caculatestate=0;result=0;
+  clearall();
+  caculatestate=0;
+
+  if (flag >= 10 && flag <= 13) {
+    sum=result;
+    result=0;
   }
 }
+
 void warning()
 {
   for (int i = 0; i < 8; i++) {
@@ -565,30 +469,83 @@ void warning()
       }
   I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, warning_message, 8);
 }
-void check_sign()
+
+static inline uint8_t is_operator(uint8_t _flag) {
+  return flag >= 10 && flag <= 13;
+}
+static inline uint8_t buffer_is_operator(uint8_t buf[]) {
+  return buf[0]==0XEE ||buf[0]==0X3E ||buf[0]==0X9C || buf[0]==0X7A;
+}
+int is_legal_input()
 {
-  if(flag>=10&&flag<=13)
+  if(is_operator(flag))
   {
-    if(Rx2_Buffer[0]==0)
+    if(Rx2_Buffer[0]==0 || buffer_is_operator(Rx2_Buffer))
     {
       warning();
-      emptyall();
+      clearall();
       warnsign=1;
-    }
-    if(Rx2_Buffer[0]==0XEE ||Rx2_Buffer[0]==0X3E ||Rx2_Buffer[0]==0X9C ||Rx2_Buffer[0]==0X7A)
-    {
-      warning();
-      emptyall();
-      warnsign=1;
+      return 0;
     }
   }
   else if(flag==16)
   {
-    if(Rx2_Buffer[0]==0XEE ||Rx2_Buffer[0]==0X3E ||Rx2_Buffer[0]==0X9C ||Rx2_Buffer[0]==0X7A)
+    if(buffer_is_operator(Rx2_Buffer))
     {
       warning();
-      emptyall();
+      clearall();
       warnsign=1;
+      return 0;
     }
   }
+  return 1;
 }
+
+void init_map() {
+  rx2flag_map[0x1C] = 1;
+  rx2flag_map[0x1B] = 2;
+  rx2flag_map[0x1A] = 3;
+  rx2flag_map[0x14] = 4;
+  rx2flag_map[0x13] = 5;
+  rx2flag_map[0x12] = 6;
+  rx2flag_map[0x0C] = 7;
+  rx2flag_map[0x0B] = 8;
+  rx2flag_map[0x0A] = 9;
+  rx2flag_map[0x03] = 15;
+  rx2flag_map[0x19] = 10;
+  rx2flag_map[0x11] = 11;
+  rx2flag_map[0x09] = 12;
+  rx2flag_map[0x01] = 13;
+  rx2flag_map[0x02] = 14;
+  rx2flag_map[0x04] = 16;
+}
+/* USER CODE END 4 */
+
+#ifdef USE_FULL_ASSERT
+
+/**
+ * @brief Reports the name of the source file and the source line number
+ * where the assert_param error has occurred.
+ * @param file: pointer to the source file name
+ * @param line: assert_param error line source number
+ * @retval None
+ */
+void assert_failed(uint8_t *file, uint32_t line) {
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line
+    number, ex: printf("Wrong parameters value: file %s on line %d\r\n", file,
+    line) */
+  /* USER CODE END 6 */
+}
+
+#endif
+
+/**
+ * @}
+ */
+
+/**
+ * @}
+ */
+
+/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
