@@ -54,22 +54,22 @@
 #define BUFFER_SIZE2 (countof(Rx2_Buffer))
 #define countof(a) (sizeof(a) / sizeof(*(a)))
 
-uint8_t flag;      
-uint8_t flag1 = 0; 
+uint8_t flag;
+uint8_t flag1 = 0;
 uint8_t Rx2_Buffer[8] = {0};
 uint8_t Tx1_Buffer[8] = {0};
 uint8_t Rx1_Buffer[1] = {0};
-uint32_t result=0;
+uint32_t result = 0;
 uint8_t resultdisplay[8] = {0};
 uint32_t num[8] = {0};
 uint8_t sign[8] = {0};
-uint8_t state=0;
-uint32_t sum=0;
-uint8_t numindex=0;
-uint8_t signindex=0;
-uint8_t caculatestate=0;
-uint8_t warning_message[8]={0};
-uint8_t warnsign=0;
+uint8_t state = 0;
+uint32_t sum = 0;
+uint8_t numindex = 0;
+uint8_t signindex = 0;
+uint8_t caculatestate = 0;
+uint8_t warning_message[8] = {0};
+uint8_t warnsign = 0;
 
 uint8_t rx2flag_map[0x1D] = {0};
 /* USER CODE END PV */
@@ -96,6 +96,7 @@ void continuecaculate();
 void warning();
 void init_map();
 int is_legal_input();
+uint8_t validate_map();
 /* USER CODE END 0 */
 
 int main(void) {
@@ -134,12 +135,13 @@ int main(void) {
     flag1 = 1;
     /* USER CODE BEGIN 3 */
     if (flag1 == 1) {
+      while (!validate_map())
+        init_map();
       flag1 = 0;
       I2C_ZLG7290_Read(&hi2c1, 0x71, 0x01, Rx1_Buffer, 1);
       flag = rx2flag_map[Rx1_Buffer[0]];
-      if(warnsign==1)
-      {
-        warnsign=0;
+      if (warnsign == 1) {
+        warnsign = 0;
         Tx1_Buffer[0] = 0x00;
         I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8);
       }
@@ -150,21 +152,18 @@ int main(void) {
       }
 
       // 上一轮我们输入了符号， 这一轮读取输入之后要先清空数码管
-      if(state==1)
-      {
-        for(int i=0;i<8;i++)
-        {
+      if (state == 1) {
+        for (int i = 0; i < 8; i++) {
           Rx2_Buffer[i] = 0x00;
         }
         I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Rx2_Buffer, 8);
-        state=0;
+        state = 0;
       }
 
       // 上一轮我们输入了=号
-      if(caculatestate==1)
-      {
+      if (caculatestate == 1) {
         continuecaculate();
-        state=0;
+        state = 0;
       }
       storenumandsign();
       switch_flag();
@@ -210,64 +209,77 @@ void SystemClock_Config(void) {
   HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
 
-
-uint8_t flag2tx1_map[16] = {0/* not used*/,
-  0x0c, // index -> 1
-  0xDA, // index -> 2
-  0xF2, // index -> 3
-  0x66, // index -> 4
-  0xB6, // index -> 5
-  0xBE, // index -> 6
-  0xE0, // index -> 7
-  0xFE, // index -> 8
-  0xE6, // index -> 9
-  0xEE, // index -> 10
-  0x3E, // index -> 11
-  0x9C, // index -> 12
-  0x7A, // index -> 13
-  0x00, // index -> 14
-  0xFC, // index -> 15
+// 数码管显示相应的字符的参数
+uint8_t flag2tx1_map[16] = {
+    0 /* not used*/,
+    0x0c, // index -> 1
+    0xDA, // index -> 2
+    0xF2, // index -> 3
+    0x66, // index -> 4
+    0xB6, // index -> 5
+    0xBE, // index -> 6
+    0xE0, // index -> 7
+    0xFE, // index -> 8
+    0xE6, // index -> 9
+    0xEE, // index -> 10 加号
+    0x3E, // index -> 11 减号
+    0x9C, // index -> 12 乘号
+    0x7A, // index -> 13 除号
+    0x00, // index -> 14 清零符号
+    0xFC, // index -> 15 数字0
 };
 
 void switch_flag(void) {
   switch (flag) {
-  // 处理输入数字1-9的情况
-  #define XX(A) case A: \
-                  Tx1_Buffer[0] = flag2tx1_map[A]; \
-                  I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer), Tx1_Buffer, 1);\
-                  break \
-  // 这一行不要删除
-  XX(1);XX(2);XX(3);XX(4);XX(5);XX(6);XX(7);XX(8);XX(9);
+// 处理输入数字1-9的情况
+#define XX(A)                                                                  \
+  case A:                                                                      \
+    Tx1_Buffer[0] = flag2tx1_map[A];                                           \
+    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1 + memlen(Rx2_Buffer),   \
+                      Tx1_Buffer, 1);                                          \
+    break // 这一行不要删除
+    XX(1);
+    XX(2);
+    XX(3);
+    XX(4);
+    XX(5);
+    XX(6);
+    XX(7);
+    XX(8);
+    XX(9);
 
-  // 处理运算符号的情况（不包括等号和清零符号）
-  #define YY(A) case A: \
-                  Tx1_Buffer[0] = 0x00; \
-                  I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8); \
-                  Tx1_Buffer[0] = flag2tx1_map[A]; \
-                  I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 1); \
-                  state = 1; \
-                  break \
-  // 这一行不要删除
-  YY(10);YY(11);YY(12);YY(13);
+// 处理运算符号的情况（不包括等号和清零符号）
+#define YY(A)                                                                  \
+  case A:                                                                      \
+    Tx1_Buffer[0] = 0x00;                                                      \
+    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8);        \
+    Tx1_Buffer[0] = flag2tx1_map[A];                                           \
+    I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 1);        \
+    state = 1;                                                                 \
+    break // 这一行不要删除
+    YY(10);
+    YY(11);
+    YY(12);
+    YY(13);
 
-  case 14: //清零符号
+  case 14: // 清零符号
     Tx1_Buffer[0] = 0x00;
     clearall();
     I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, Tx1_Buffer, 8);
     break;
 
-  // 处理数字0
-  XX(15);
+    // 处理数字0
+    XX(15);
 
   case 16: // 等于号
     caculate();
     numdisplay(result);
-    if(warnsign==1)
-    {
+    if (warnsign == 1) {
       break;
     }
     I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, resultdisplay, 8);
-    state=1;caculatestate=1;
+    state = 1;
+    caculatestate = 1;
     break;
   default:
     break;
@@ -297,176 +309,154 @@ uint8_t memlen32(uint32_t *str) {
   return count;
 }
 
-void caculate()
-{
-  uint8_t i = 0;uint8_t numcount = memlen32(num);uint8_t signcount = memlen(sign);
-  for (i = 0; i < signcount; ) {
-      if (sign[i] == '*' || sign[i] == '/') {
-          if (sign[i] == '*')
-              result = num[i] * num[i + 1];
-          else
-          {
-            if(num[i+1]==0)
-            {
-              clearall();
-              warning();
-              warnsign=1;
-              return;
-            }
-            else{
-              result = num[i] / num[i + 1];
-            }
-          }
-          // 更新数字数组
-          num[i] = result;
-          // 把后面的数字和运算符往前移
-          for (uint8_t j = i + 1; j < numcount - 1; j++) {
-              num[j] = num[j + 1];
-          }
-          for (uint8_t j = i; j < signcount - 1; j++) {
-              sign[j] = sign[j + 1];
-          }
-          numcount--;
-          signcount--;
-          // 不自增i，因为当前位置可能还有乘除法
-      } else {
-            i++;
+void caculate() {
+  uint8_t i = 0;
+  uint8_t numcount = memlen32(num);
+  uint8_t signcount = memlen(sign);
+  for (i = 0; i < signcount;) {
+    if (sign[i] == '*' || sign[i] == '/') {
+      if (sign[i] == '*')
+        result = num[i] * num[i + 1];
+      else {
+        if (num[i + 1] == 0) {
+          clearall();
+          warning();
+          warnsign = 1;
+          return;
+        } else {
+          result = num[i] / num[i + 1];
         }
+      }
+      // 更新数字数组
+      num[i] = result;
+      // 把后面的数字和运算符往前移
+      for (uint8_t j = i + 1; j < numcount - 1; j++) {
+        num[j] = num[j + 1];
+      }
+      for (uint8_t j = i; j < signcount - 1; j++) {
+        sign[j] = sign[j + 1];
+      }
+      numcount--;
+      signcount--;
+      // 不自增i，因为当前位置可能还有乘除法
+    } else {
+      i++;
     }
+  }
   // 然后处理加法和减法
   result = num[0];
   for (i = 0; i < signcount; i++) {
-      if (sign[i] == '+')
-          result += num[i + 1];
-      else if (sign[i] == '-')
-          result -= num[i + 1];
+    if (sign[i] == '+')
+      result += num[i + 1];
+    else if (sign[i] == '-')
+      result -= num[i + 1];
   }
 }
 
-void numdisplay(uint32_t result)
-{
+void numdisplay(uint32_t result) {
   const uint8_t SEGMENT_CODES[10] = {
-    0xFC, // 0
-    0x0C, // 1
-    0xDA, // 2
-    0xF2, // 3
-    0x66, // 4
-    0xB6, // 5
-    0xBE, // 6
-    0xE0, // 7
-    0xFE, // 8
-    0xE6  // 9
-    };
+      0xFC, // 0
+      0x0C, // 1
+      0xDA, // 2
+      0xF2, // 3
+      0x66, // 4
+      0xB6, // 5
+      0xBE, // 6
+      0xE0, // 7
+      0xFE, // 8
+      0xE6  // 9
+  };
   if (result < 0 || result > 99999999) {
-      // 超出范围时设为全 9
-      warning();
-      clearall();
-      warnsign=1;
-      return;
+    // 超出范围时设为全 9
+    warning();
+    clearall();
+    warnsign = 1;
+    return;
   }
   // 存进临时数组
   uint8_t index = 0;
-  uint8_t temp[8]={0};
+  uint8_t temp[8] = {0};
   do {
-      uint8_t digit = result % 10;
-      temp[index++] = SEGMENT_CODES[digit];
-      result /= 10;
+    uint8_t digit = result % 10;
+    temp[index++] = SEGMENT_CODES[digit];
+    result /= 10;
   } while (result >= 1);
-  uint8_t len=index;
-  index-=1;
-  //改变元素顺序存入结果数组
-  for(uint8_t i =0;i<len;i++)
-  {
-    resultdisplay[i]=temp[index--];
+  uint8_t len = index;
+  index -= 1;
+  // 改变元素顺序存入结果数组
+  for (uint8_t i = 0; i < len; i++) {
+    resultdisplay[i] = temp[index--];
   }
 }
 
-void storenumandsign()
-{
-  if((flag >= 1 && flag <= 9) || flag==15)
-      {
-        if(flag==15)
-        {
-          sum=sum*10;
-        }
-        else
-        {
-          sum=sum*10+flag;
-        }
-      }
-      else if(flag >=10 && flag <= 13)
-      {
-        num[numindex++]=sum;
-        sum=0;
-        switch(flag)
-        {
-          case 10:
-            sign[signindex++]='+';
-            break;
-          case 11:
-            sign[signindex++]='-';
-            break;
-          case 12:
-            sign[signindex++]='*';
-            break;
-          case 13:
-            sign[signindex++]='/';
-            break;
-          default:
-            break;
-        }
-      }
-      else if(flag==16)
-      {
-        num[numindex++]=sum;
-        sum=0;
-      }
-  
+void storenumandsign() {
+  if ((flag >= 1 && flag <= 9) || flag == 15) {
+    if (flag == 15) {
+      sum = sum * 10;
+    } else {
+      sum = sum * 10 + flag;
+    }
+  } else if (flag >= 10 && flag <= 13) {
+    num[numindex++] = sum;
+    sum = 0;
+    switch (flag) {
+    case 10:
+      sign[signindex++] = '+';
+      break;
+    case 11:
+      sign[signindex++] = '-';
+      break;
+    case 12:
+      sign[signindex++] = '*';
+      break;
+    case 13:
+      sign[signindex++] = '/';
+      break;
+    default:
+      break;
+    }
+  } else if (flag == 16) {
+    num[numindex++] = sum;
+    sum = 0;
+  }
 }
 
-void clearsign(uint8_t *str)
-{
-  while(*str)
-  {
-    *str=0;
+void clearsign(uint8_t *str) {
+  while (*str) {
+    *str = 0;
     str++;
   }
 }
 
-void clearnum(uint32_t *str)
-{
-  while(*str)
-  {
-    *str=0;
+void clearnum(uint32_t *str) {
+  while (*str) {
+    *str = 0;
     str++;
   }
 }
 
-void clearall()
-{
-  numindex=0;
-  signindex=0;
+void clearall() {
+  numindex = 0;
+  signindex = 0;
   clearsign(sign);
   clearnum(num);
   clearsign(resultdisplay);
 }
 
-void continuecaculate()
-{
+void continuecaculate() {
   clearall();
-  caculatestate=0;
+  caculatestate = 0;
 
   if (flag >= 10 && flag <= 13) {
-    sum=result;
-    result=0;
+    sum = result;
+    result = 0;
   }
 }
 
-void warning()
-{
+void warning() {
   for (int i = 0; i < 8; i++) {
-          warning_message[i] = 0xFE;
-      }
+    warning_message[i] = 0xFE;
+  }
   I2C_ZLG7290_Write(&hi2c1, 0x70, ZLG_WRITE_ADDRESS1, warning_message, 8);
 }
 
@@ -474,27 +464,21 @@ static inline uint8_t is_operator(uint8_t _flag) {
   return flag >= 10 && flag <= 13;
 }
 static inline uint8_t buffer_is_operator(uint8_t buf[]) {
-  return buf[0]==0XEE ||buf[0]==0X3E ||buf[0]==0X9C || buf[0]==0X7A;
+  return buf[0] == 0XEE || buf[0] == 0X3E || buf[0] == 0X9C || buf[0] == 0X7A;
 }
-int is_legal_input()
-{
-  if(is_operator(flag))
-  {
-    if(Rx2_Buffer[0]==0 || buffer_is_operator(Rx2_Buffer))
-    {
+int is_legal_input() {
+  if (is_operator(flag)) {
+    if (Rx2_Buffer[0] == 0 || buffer_is_operator(Rx2_Buffer)) {
       warning();
       clearall();
-      warnsign=1;
+      warnsign = 1;
       return 0;
     }
-  }
-  else if(flag==16)
-  {
-    if(buffer_is_operator(Rx2_Buffer))
-    {
+  } else if (flag == 16) {
+    if (buffer_is_operator(Rx2_Buffer)) {
       warning();
       clearall();
-      warnsign=1;
+      warnsign = 1;
       return 0;
     }
   }
@@ -518,6 +502,42 @@ void init_map() {
   rx2flag_map[0x01] = 13;
   rx2flag_map[0x02] = 14;
   rx2flag_map[0x04] = 16;
+}
+
+uint8_t validate_map() {
+  if (!(rx2flag_map[0x1C] == 1))
+    return 0;
+  if (!(rx2flag_map[0x1B] == 2))
+    return 0;
+  if (!(rx2flag_map[0x1A] == 3))
+    return 0;
+  if (!(rx2flag_map[0x14] == 4))
+    return 0;
+  if (!(rx2flag_map[0x13] == 5))
+    return 0;
+  if (!(rx2flag_map[0x12] == 6))
+    return 0;
+  if (!(rx2flag_map[0x0C] == 7))
+    return 0;
+  if (!(rx2flag_map[0x0B] == 8))
+    return 0;
+  if (!(rx2flag_map[0x0A] == 9))
+    return 0;
+  if (!(rx2flag_map[0x03] == 15))
+    return 0;
+  if (!(rx2flag_map[0x19] == 10))
+    return 0;
+  if (!(rx2flag_map[0x11] == 11))
+    return 0;
+  if (!(rx2flag_map[0x09] == 12))
+    return 0;
+  if (!(rx2flag_map[0x01] == 13))
+    return 0;
+  if (!(rx2flag_map[0x02] == 14))
+    return 0;
+  if (!(rx2flag_map[0x04] == 16))
+    return 0;
+  return 1;
 }
 /* USER CODE END 4 */
 
