@@ -62,6 +62,10 @@ void I2C_ZLG7290_Read(int *fake, uint8_t dev_and_mode, uint8_t where,
         buffer[i] = 0x01;
       } else if (ch == 0x30) {
         buffer[i] = 0x03;
+      } else if (ch=='t'){
+        buffer[i] = 0x04;
+      } else if (ch=='*'){
+        buffer[i] = 0x02;
       }
     }
   } else if (where == 0x10) {
