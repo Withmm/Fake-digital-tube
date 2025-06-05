@@ -97,6 +97,14 @@ void warning();
 void init_map();
 int is_legal_input();
 uint8_t validate_map();
+
+// 新增数组越界检查宏
+#define CHECK_ARRAY_BOUND(index, max_size) \
+    if ((index) >= (max_size)) { \
+        clearall(); \
+        warning(); \
+        return; \
+    }
 /* USER CODE END 0 */
 
 int main(void) {
@@ -313,23 +321,34 @@ void caculate() {
   uint8_t i = 0;
   uint8_t numcount = memlen32(num);
   uint8_t signcount = memlen(sign);
+
+  // 先处理乘除法
   for (i = 0; i < signcount;) {
     if (sign[i] == '*' || sign[i] == '/') {
-      if (sign[i] == '*')
-        result = num[i] * num[i + 1];
-      else {
-        if (num[i + 1] == 0) {
+      // 除数为零检查（已存在，增强提示）
+      if (sign[i] == '/' && num[i + 1] == 0) {
+        clearall();
+        warning(); // 显示错误
+        warnsign = 1;
+        return;
+      }
+
+      // 乘法溢出检查（无符号数溢出检测）
+      if (sign[i] == '*') {
+        uint64_t temp = (uint64_t)num[i] * num[i + 1];
+        if (temp > UINT32_MAX) { // 超过32位无符号数范围
           clearall();
           warning();
           warnsign = 1;
           return;
-        } else {
-          result = num[i] / num[i + 1];
         }
+        result = (uint32_t)temp;
+      } else {
+        result = num[i] / num[i + 1];
       }
-      // 更新数字数组
+
+      // 更新数组
       num[i] = result;
-      // 把后面的数字和运算符往前移
       for (uint8_t j = i + 1; j < numcount - 1; j++) {
         num[j] = num[j + 1];
       }
@@ -338,18 +357,36 @@ void caculate() {
       }
       numcount--;
       signcount--;
-      // 不自增i，因为当前位置可能还有乘除法
     } else {
       i++;
     }
   }
-  // 然后处理加法和减法
+
+  // 处理加减法时的溢出检查
   result = num[0];
   for (i = 0; i < signcount; i++) {
-    if (sign[i] == '+')
-      result += num[i + 1];
-    else if (sign[i] == '-')
-      result -= num[i + 1];
+    uint32_t operand = num[i + 1];
+    if (sign[i] == '+') {
+      // 加法溢出检查
+      if (result > UINT32_MAX - operand) {
+        clearall();
+        warning();
+        warnsign = 1;
+        return;
+      }
+      result += operand;
+    } else {
+      // 减法不做负数处理（无符号数特性）
+      result -= operand;
+    }
+  }
+
+  // 结果范围检查（0-99999999）
+  if (result > 99999999) {
+    clearall();
+    warning();
+    warnsign = 1;
+    return;
   }
 }
 
@@ -366,14 +403,16 @@ void numdisplay(uint32_t result) {
       0xFE, // 8
       0xE6  // 9
   };
-  if (result < 0 || result > 99999999) {
-    // 超出范围时设为全 9
+
+  // 结果合法性检查（已在caculate中处理，此处保留冗余检查）
+  if (result > 99999999) {
     warning();
     clearall();
     warnsign = 1;
     return;
   }
-  // 存进临时数组
+
+  // 原有显示逻辑
   uint8_t index = 0;
   uint8_t temp[8] = {0};
   do {
@@ -381,44 +420,62 @@ void numdisplay(uint32_t result) {
     temp[index++] = SEGMENT_CODES[digit];
     result /= 10;
   } while (result >= 1);
+  
   uint8_t len = index;
   index -= 1;
-  // 改变元素顺序存入结果数组
   for (uint8_t i = 0; i < len; i++) {
     resultdisplay[i] = temp[index--];
   }
 }
 
 void storenumandsign() {
-  if ((flag >= 1 && flag <= 9) || flag == 15) {
-    if (flag == 15) {
-      sum = sum * 10;
-    } else {
-      sum = sum * 10 + flag;
+    // 新增数组越界预防
+    if ((flag >= 1 && flag <= 9) || flag == 15) {
+        // 数值输入时检查是否超过8位
+        if (numindex >= 8) {
+            clearall();
+            warning();
+            return;
+        }
+        if (flag == 15) {
+            sum = sum * 10;
+        } else {
+            sum = sum * 10 + flag;
+        }
+    } else if (flag >= 10 && flag <= 13) {
+        // 操作数存储越界检查
+        CHECK_ARRAY_BOUND(numindex, 7); // 最多存7个操作数
+        num[numindex++] = sum;
+        sum = 0;
+        
+        // 运算符存储越界检查
+        CHECK_ARRAY_BOUND(signindex, 7); // 最多存7个运算符
+        switch (flag) {
+            case 10:
+                sign[signindex++] = '+';
+                break;
+            case 11:
+                sign[signindex++] = '-';
+                break;
+            case 12:
+                sign[signindex++] = '*';
+                break;
+            case 13:
+                sign[signindex++] = '/';
+                break;
+            default:
+                break;
+        }
+    } else if (flag == 16) {
+        // 等号处理时检查操作数数量
+        if (numindex >= 7) { // 防止最后一个操作数存储越界
+            clearall();
+            warning();
+            return;
+        }
+        num[numindex++] = sum;
+        sum = 0;
     }
-  } else if (flag >= 10 && flag <= 13) {
-    num[numindex++] = sum;
-    sum = 0;
-    switch (flag) {
-    case 10:
-      sign[signindex++] = '+';
-      break;
-    case 11:
-      sign[signindex++] = '-';
-      break;
-    case 12:
-      sign[signindex++] = '*';
-      break;
-    case 13:
-      sign[signindex++] = '/';
-      break;
-    default:
-      break;
-    }
-  } else if (flag == 16) {
-    num[numindex++] = sum;
-    sum = 0;
-  }
 }
 
 void clearsign(uint8_t *str) {
@@ -447,7 +504,9 @@ void continuecaculate() {
   clearall();
   caculatestate = 0;
 
+  // 继续计算时检查操作数存储越界
   if (flag >= 10 && flag <= 13) {
+    CHECK_ARRAY_BOUND(numindex, 7);
     sum = result;
     result = 0;
   }
@@ -466,23 +525,63 @@ static inline uint8_t is_operator(uint8_t _flag) {
 static inline uint8_t buffer_is_operator(uint8_t buf[]) {
   return buf[0] == 0XEE || buf[0] == 0X3E || buf[0] == 0X9C || buf[0] == 0X7A;
 }
+
 int is_legal_input() {
-  if (is_operator(flag)) {
-    if (Rx2_Buffer[0] == 0 || buffer_is_operator(Rx2_Buffer)) {
-      warning();
-      clearall();
-      warnsign = 1;
-      return 0;
+    // 增强输入合法性校验
+    static uint8_t last_input = 0; // 记录上一次输入类型：0=无，1=数字，2=运算符，3=等号
+    
+    // 处理特殊按键
+    if (flag == 14) { // 清零键
+        last_input = 0;
+        return 1;
+    } else if (flag == 16) { // 等号
+        if (last_input != 1) { // 等号前必须是数字
+            warning();
+            clearall();
+            warnsign = 1;
+            last_input = 0;
+            return 0;
+        }
+        last_input = 3;
+        return 1;
     }
-  } else if (flag == 16) {
-    if (buffer_is_operator(Rx2_Buffer)) {
-      warning();
-      clearall();
-      warnsign = 1;
-      return 0;
+
+    // 判断当前输入类型
+    uint8_t current_type = 0;
+    if ((flag >= 1 && flag <= 9) || flag == 15) {
+        current_type = 1; // 数字
+    } else if (flag >= 10 && flag <= 13) {
+        current_type = 2; // 运算符
+    } else {
+        return 1; // 其他按键忽略
     }
-  }
-  return 1;
+
+    // 校验逻辑
+    if (last_input == 0) { // 初始状态
+        if (current_type == 2) { // 不能以运算符开头
+            warning();
+            clearall();
+            warnsign = 1;
+            return 0;
+        }
+    } else if (last_input == 2) { // 上一次是运算符
+        if (current_type == 2) { // 不能连续运算符
+            warning();
+            clearall();
+            warnsign = 1;
+            return 0;
+        }
+    } else if (last_input == 3) { // 上一次是等号
+        if (current_type != 2) { // 等号后只能接运算符
+            warning();
+            clearall();
+            warnsign = 1;
+            return 0;
+        }
+    }
+
+    last_input = current_type;
+    return 1;
 }
 
 void init_map() {
