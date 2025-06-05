@@ -155,7 +155,9 @@ int main(void) {
       }
       I2C_ZLG7290_Read(&hi2c1, 0x71, 0x10, Rx2_Buffer, 8);
       if (!is_legal_input()) {
+        clearall();
         warning();
+        warnsign = 1;
         continue;
       }
 
@@ -442,6 +444,13 @@ void storenumandsign() {
         } else {
             sum = sum * 10 + flag;
         }
+        // 每个数字不能大于数码管显示的极限
+        printf("sum = %u\n", sum);
+        if (sum > 99999999) {
+          clearall();
+          warning();
+          return ;
+        }
     } else if (flag >= 10 && flag <= 13) {
         // 操作数存储越界检查
         CHECK_ARRAY_BOUND(numindex, 7); // 最多存7个操作数
@@ -476,6 +485,7 @@ void storenumandsign() {
         num[numindex++] = sum;
         sum = 0;
     }
+
 }
 
 void clearsign(uint8_t *str) {
@@ -536,9 +546,6 @@ int is_legal_input() {
         return 1;
     } else if (flag == 16) { // 等号
         if (last_input != 1) { // 等号前必须是数字
-            warning();
-            clearall();
-            warnsign = 1;
             last_input = 0;
             return 0;
         }
@@ -559,24 +566,15 @@ int is_legal_input() {
     // 校验逻辑
     if (last_input == 0) { // 初始状态
         if (current_type == 2) { // 不能以运算符开头
-            warning();
-            clearall();
-            warnsign = 1;
             return 0;
         }
     } else if (last_input == 2) { // 上一次是运算符
         if (current_type == 2) { // 不能连续运算符
-            warning();
-            clearall();
-            warnsign = 1;
             return 0;
         }
     } else if (last_input == 3) { // 上一次是等号
-        if (current_type != 2) { // 等号后只能接运算符
-            warning();
-            clearall();
-            warnsign = 1;
-            return 0;
+        if (current_type == 1) {
+          clearall();
         }
     }
 

@@ -60,6 +60,8 @@ def read_subprocess():
                 bits = [(value >> i) & 1 for i in reversed(range(8))]
                 seg_list.append(bits)
             latest_segments = seg_list
+        else:
+            print(line)
 
 def main():
     pygame.init()
